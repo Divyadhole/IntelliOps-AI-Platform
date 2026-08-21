@@ -3,7 +3,7 @@ SHELL := /bin/bash
 PY ?= python3            # override with `make PY=python` inside a venv on Windows
 export PYTHONPATH := src
 
-.PHONY: help install install-dev install-nlp pipeline train segment nlp rag-index all api dashboard mlflow ask test lint format docker-build docker-up docker-down clean
+.PHONY: help install install-dev install-nlp pipeline train segment nlp rag-index all api dashboard report mlflow ask test lint format docker-build docker-up docker-down clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -32,14 +32,17 @@ nlp:  ## Module 3a — sentiment + topic discovery over customer feedback
 rag-index:  ## Module 3b — build the RAG vector index
 	$(PY) -m intelliops.rag_assistant.retriever
 
-all: pipeline train segment nlp rag-index  ## Run the full platform end to end
+all: pipeline train segment nlp rag-index report  ## Run the full platform end to end
 	@echo "✔ Platform ready — run 'make api' and 'make dashboard'"
 
 api:  ## Module 4 — serve the FastAPI app (docs at /docs)
 	$(PY) -m uvicorn intelliops.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-dashboard:  ## Module 4 — launch the Streamlit executive dashboard
+dashboard:  ## Module 4 — launch the interactive Streamlit dashboard
 	streamlit run dashboard/app.py
+
+report:  ## Module 4 — build the shareable static dashboard (artifacts/reports/dashboard.html)
+	$(PY) -m intelliops.reporting.build_dashboard
 
 mlflow:  ## Open the MLflow experiment tracking UI
 	mlflow ui --backend-store-uri ./artifacts/mlruns --port 5000

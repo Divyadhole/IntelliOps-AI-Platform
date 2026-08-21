@@ -69,6 +69,7 @@ jobs:
           python -m intelliops.churn_model.segmentation
           python -m intelliops.nlp_engine.run_nlp
           python -m intelliops.rag_assistant.retriever
+          python -m intelliops.reporting.build_dashboard
 
       # A model whose ROC-AUC silently regresses is the failure mode that reaches
       # production unnoticed, so CI asserts a floor on it rather than only on tests.
@@ -96,7 +97,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: model-reports
+          name: model-reports-and-dashboard
           path: artifacts/reports/
           retention-days: 14
 

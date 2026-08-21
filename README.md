@@ -20,6 +20,11 @@ data with the same schema and the same defects as the real IBM Telco file, so
 `make all` works on a clean machine; drop the real CSV into `data/raw/` and
 ingestion prefers it automatically.
 
+![IntelliOps executive dashboard](docs/dashboard.png)
+
+*The static build. `make report` regenerates it from the warehouse; `make dashboard`
+serves the interactive Streamlit version of the same page.*
+
 ---
 
 ## The problem
@@ -192,10 +197,39 @@ FastAPI with `/predict_churn`, `/predict_churn/batch`, `/ask`, `/kpis`,
   that makes production models quietly worse than their offline metrics, and the
   fix is a shared transform — `prepare_for_inference()` — used on both sides.
 
-The Streamlit dashboard reads the warehouse directly, so it works whether or not
-the API is up: executive overview, a call list ranked by expected value (CSV
-export), feedback themes with verbatims, the RAG analyst, and a Data & Model Ops
-view that keeps quality checks and evaluation metrics visible rather than buried.
+### The dashboard, in two forms
+
+**`make dashboard`** serves the interactive Streamlit app: one scrolling executive
+page with the campaign economics live in the sidebar. Move the save rate or the
+offer cost and the call list, the campaign ROI and the exposure figure all
+re-price in front of you — the point being that the business case rests on three
+assumptions nobody has measured yet, and the reader should be able to feel how
+sensitive it is to them. Live single-customer scoring and the RAG analyst call the
+API; everything else reads the warehouse, so the page still works with the API
+stopped.
+
+**`make report`** builds `artifacts/reports/dashboard.html` — the same page as one
+self-contained file with no Python, no server and no CDN. It is what you send
+someone.
+
+Both render the **same chart primitives** (`intelliops/reporting/svg.py`) under the
+same CSS custom properties, so the app and the shareable snapshot cannot drift
+apart — and the platform needs no plotting library at all.
+
+Details that matter more than they look:
+
+- **The palette is validated, not chosen by eye.** Categorical hues clear a
+  colour-vision-deficiency separation floor on both light and dark surfaces; the
+  one hue that falls below 3:1 contrast appears only where direct labels carry the
+  value anyway.
+- **Risk bands use status colours, never a series colour**, and always ship with a
+  label — colour never carries meaning alone.
+- **Every chart has a data table** underneath it, so nothing is gated behind
+  seeing colour.
+- **Dark mode is designed, not inverted** — its own steps from the same ramps,
+  validated against the dark surface.
+- The call list is **ranked by expected value, not by risk**, which is the whole
+  argument of the platform expressed as a sort order.
 
 ---
 
@@ -210,11 +244,11 @@ view that keeps quality checks and evaluation metrics visible rather than buried
 | Scheduling | Airflow DAG that imports the same functions the CLI calls |
 | CI | Lint + tests on Python 3.10/3.11/3.12, full end-to-end run, image build |
 | Quality gate | CI **fails the build if ROC-AUC drops below 0.78** |
-| Tests | 69 tests: data contract, feature definitions, policy economics, retrieval, API contract |
+| Tests | 92 tests: data contract, feature definitions, policy economics, retrieval, API contract, chart specs |
 
 ```bash
 docker compose up -d      # full stack: Postgres, MLflow, API, dashboard
-make test                 # 69 tests
+make test                 # 92 tests
 make mlflow               # experiment UI at :5000
 ```
 
@@ -236,9 +270,12 @@ IntelliOps-AI-Platform/
 │   │   ├── clean.py sentiment.py topics.py run_nlp.py
 │   ├── rag_assistant/             # Module 3b — retrieval + grounded generation
 │   │   ├── vector_store.py retriever.py llm.py assistant.py
-│   └── api/                       # Module 4 — FastAPI serving
-│       ├── main.py schemas.py
+│   ├── api/                       # Module 4 — FastAPI serving
+│   │   ├── main.py schemas.py
+│   └── reporting/                 # Module 4 — static dashboard renderer
+│       ├── svg.py build_dashboard.py
 ├── dashboard/app.py               # Streamlit executive dashboard
+├── docs/                          # README screenshots
 ├── tests/                         # 69 tests
 ├── docker/  docker-compose.yml  .github/workflows/ci.yml  Makefile
 ```
@@ -290,7 +327,7 @@ Stating these is part of the engineering, not a disclaimer.
 - Developed and cross-validated four churn models (logistic regression, random forest, XGBoost, LightGBM), selecting and calibrating the winner at **0.863 ROC-AUC / 0.147 Brier with 2.34× top-decile lift**, with SHAP explanations rendered as actionable retention reasons.
 - Designed an **expected-value targeting policy** that converts calibrated probabilities and campaign economics into a ranked call list, yielding a modelled **1.64× campaign ROI** versus untargeted outreach.
 - Built an NLP and RAG layer — sentiment, NMF topic discovery, hybrid dense+lexical retrieval over structured facts and verbatims — answering executive questions with cited, grounded evidence and a deterministic fallback when no LLM is configured.
-- Shipped the platform as a FastAPI service and Streamlit dashboard with MLflow tracking, multi-stage Docker images, an Airflow DAG, and a GitHub Actions pipeline running 69 tests plus a model-quality gate.
+- Shipped the platform as a FastAPI service and Streamlit dashboard with MLflow tracking, multi-stage Docker images, an Airflow DAG, and a GitHub Actions pipeline running 92 tests plus a model-quality gate.
 
 ---
 

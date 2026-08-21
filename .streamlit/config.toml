@@ -1,0 +1,16 @@
+# Streamlit's own theme, aligned with the validated palette used by the charts
+# (src/intelliops/reporting/svg.py). Keeping them in sync here means the app chrome
+# and the data marks never disagree about what "the accent colour" is.
+[theme]
+base = "light"
+primaryColor = "#4a3aa7"
+backgroundColor = "#f4f4f1"
+secondaryBackgroundColor = "#fcfcfb"
+textColor = "#0b0b0b"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
