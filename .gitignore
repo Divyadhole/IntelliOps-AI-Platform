@@ -12,6 +12,7 @@ artifacts/reports/*
 artifacts/figures/*
 !artifacts/figures/.gitkeep
 artifacts/mlruns/
+artifacts/mlflow.db
 mlruns/
 
 # docs screenshots are committed on purpose — the README needs them

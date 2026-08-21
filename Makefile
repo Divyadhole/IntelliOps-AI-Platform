@@ -45,7 +45,7 @@ report:  ## Module 4 — build the shareable static dashboard (artifacts/reports
 	$(PY) -m intelliops.reporting.build_dashboard
 
 mlflow:  ## Open the MLflow experiment tracking UI
-	mlflow ui --backend-store-uri ./artifacts/mlruns --port 5000
+	mlflow ui --backend-store-uri sqlite:///artifacts/mlflow.db --port 5000
 
 ask:  ## Ask the RAG analyst, e.g. make ask Q="why are customers leaving?"
 	$(PY) -m intelliops.rag_assistant.assistant "$(Q)"

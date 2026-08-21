@@ -112,3 +112,50 @@ class TestCalibrationChoice:
         # downstream dollar figure; the platform must never emit them.
         proba = fitted["proba"]
         assert np.all(proba > 0.0) and np.all(proba < 1.0)
+
+
+class TestTrackingIsOptional:
+    """Experiment tracking must never be able to fail a training run.
+
+    Regression test for a real break: mlflow 3.15 started raising on the old
+    ``file:./mlruns`` store, which turned a logging backend into a build-breaking
+    dependency and took CI's end-to-end job down with it. Unit tests passed the
+    whole time, because they never touched mlflow — hence this test.
+    """
+
+    def test_relative_sqlite_uri_is_resolved_absolute(self, cfg):
+        uri = cfg.mlflow_uri
+        assert uri.startswith("sqlite:////") or not uri.startswith("sqlite:///"), (
+            "a relative tracking URI silently creates a second database when the run "
+            "starts from a different working directory"
+        )
+
+    def test_training_continues_when_the_tracking_backend_refuses(self, cfg, monkeypatch):
+        from intelliops.churn_model.train import _mlflow_run
+
+        try:
+            import mlflow
+        except ImportError:
+            run_ctx, tracker = _mlflow_run(cfg)
+            assert tracker is None
+            with run_ctx:
+                pass
+            return
+
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("The filesystem tracking backend is in maintenance mode")
+
+        monkeypatch.setattr(mlflow, "set_tracking_uri", explode)
+        run_ctx, tracker = _mlflow_run(cfg)
+        assert tracker is None, "a refusing backend must disable tracking, not raise"
+        with run_ctx:  # the no-op context still has to be usable
+            pass
+
+    def test_tracking_can_be_switched_off_entirely(self, cfg, monkeypatch):
+        from intelliops.churn_model.train import _mlflow_run
+
+        monkeypatch.setitem(cfg._data["mlflow"], "enabled", False)
+        run_ctx, tracker = _mlflow_run(cfg)
+        assert tracker is None
+        with run_ctx:
+            pass

@@ -86,7 +86,13 @@ def _build_candidates(cfg: Config) -> dict[str, Any]:
 
 
 def _mlflow_run(cfg: Config):
-    """Return an MLflow run context, or a no-op if MLflow is unavailable/disabled."""
+    """Return an MLflow run context, or a no-op if tracking is unavailable.
+
+    Experiment tracking is observability, not a dependency of producing a model, so
+    every failure path here degrades to "no tracking" rather than failing the run.
+    This is not hypothetical: mlflow 3.15 began raising on the old ``file:./mlruns``
+    store, which turned a logging backend into a build-breaking dependency.
+    """
     from contextlib import nullcontext
 
     if not cfg.get("mlflow.enabled", True):
@@ -96,9 +102,16 @@ def _mlflow_run(cfg: Config):
     except ImportError:
         logger.warning("mlflow not installed — experiment tracking disabled for this run")
         return nullcontext(), None
-    mlflow.set_tracking_uri(cfg["mlflow.tracking_uri"])
-    mlflow.set_experiment(cfg["mlflow.experiment"])
-    return mlflow.start_run(run_name=f"churn-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}"), mlflow
+    try:
+        mlflow.set_tracking_uri(cfg.mlflow_uri)
+        mlflow.set_experiment(cfg["mlflow.experiment"])
+        run = mlflow.start_run(run_name=f"churn-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}")
+    except Exception as exc:
+        logger.warning("MLflow tracking unavailable (%s: %s) — continuing without it",
+                       exc.__class__.__name__, str(exc)[:160])
+        return nullcontext(), None
+    logger.info("MLflow tracking → %s", cfg.mlflow_uri)
+    return run, mlflow
 
 
 def train(cfg: Config | None = None, features: pd.DataFrame | None = None) -> dict[str, Any]:

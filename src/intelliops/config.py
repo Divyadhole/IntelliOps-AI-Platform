@@ -67,6 +67,25 @@ class Config:
         return url
 
     @property
+    def mlflow_uri(self) -> str:
+        """Tracking URI with relative SQLite paths made absolute.
+
+        MLflow resolves a relative URI against the process's working directory, so a
+        run launched from a subdirectory would silently start a second, empty tracking
+        database. ``MLFLOW_TRACKING_URI`` still wins for deployments.
+        """
+        env = os.getenv("MLFLOW_TRACKING_URI")
+        if env:
+            return env
+        uri = self.get("mlflow.tracking_uri", "sqlite:///artifacts/mlflow.db")
+        if uri.startswith("sqlite:///") and not uri.startswith("sqlite:////"):
+            rel = uri.replace("sqlite:///", "", 1)
+            abs_path = (self.root / rel).resolve()
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            return f"sqlite:///{abs_path}"
+        return uri
+
+    @property
     def seed(self) -> int:
         return int(self.get("project.random_seed", 42))
 

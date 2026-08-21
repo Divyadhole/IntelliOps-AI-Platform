@@ -111,7 +111,10 @@ rag:
 
 mlflow:
   enabled: true
-  tracking_uri: file:./artifacts/mlruns
+  # SQLite, not the old file store: mlflow >= 3.15 raises on `file:./mlruns`
+  # ("maintenance mode"), and a database backend is what the UI and the model
+  # registry both want anyway. Relative paths are resolved against the project root.
+  tracking_uri: sqlite:///artifacts/mlflow.db
   experiment: intelliops-churn
 
 api:
