@@ -1,0 +1,124 @@
+# =============================================================================
+# IntelliOps AI Platform - central configuration
+# Every module reads from here. Nothing is hard-coded in the source.
+# =============================================================================
+
+project:
+  name: intelliops
+  random_seed: 42
+
+paths:
+  data_raw: data/raw
+  data_interim: data/interim
+  data_processed: data/processed
+  artifacts: artifacts
+  models: artifacts/models
+  reports: artifacts/reports
+  figures: artifacts/figures
+
+warehouse:
+  # sqlite works out of the box; set INTELLIOPS_DB_URL to a Postgres URL to swap
+  # e.g. postgresql+psycopg2://intelliops:intelliops@localhost:5432/intelliops
+  url: sqlite:///data/processed/warehouse.db
+  schema_tables:
+    customers: dim_customers
+    features: fct_customer_features
+    reviews: fct_reviews
+    predictions: fct_churn_predictions
+    quality: ops_data_quality
+
+ingest:
+  # If a real Kaggle CSV is present at this path it is used; otherwise the
+  # synthetic generator produces a schema-identical dataset so the repo always runs.
+  telco_csv: data/raw/telco_customer_churn.csv
+  reviews_csv: data/raw/customer_reviews.csv
+  synthetic_customers: 7500
+  synthetic_reviews: 4000
+
+validation:
+  # Data-contract style expectations enforced before anything hits the warehouse.
+  required_columns:
+    - customerID
+    - tenure
+    - MonthlyCharges
+    - TotalCharges
+    - Contract
+    - Churn
+  max_null_fraction: 0.05
+  max_duplicate_fraction: 0.0
+  ranges:
+    tenure: [0, 100]
+    MonthlyCharges: [0, 1000]
+    TotalCharges: [0, 100000]
+  fail_on_error: true
+
+churn_model:
+  target: Churn
+  id_column: customerID
+  test_size: 0.2
+  cv_folds: 5
+  positive_label: 1
+  # Business economics used to convert probabilities into an expected-value decision
+  economics:
+    monthly_margin_multiplier: 0.35   # gross margin on monthly charges
+    retention_offer_cost: 45.0        # cost of a retention offer, USD
+    offer_success_rate: 0.30          # historical save rate on accepted offers
+    horizon_months: 12
+  models:
+    logistic_regression:
+      enabled: true
+      params: {C: 1.0, max_iter: 2000, class_weight: balanced}
+    random_forest:
+      enabled: true
+      params: {n_estimators: 400, max_depth: 12, min_samples_leaf: 5, class_weight: balanced_subsample}
+    xgboost:
+      enabled: true
+      params: {n_estimators: 400, max_depth: 4, learning_rate: 0.05, subsample: 0.9,
+               colsample_bytree: 0.8, min_child_weight: 8, reg_lambda: 2.0, eval_metric: logloss}
+    lightgbm:
+      enabled: true
+      params: {n_estimators: 400, num_leaves: 31, learning_rate: 0.05, min_child_samples: 40,
+               subsample: 0.9, subsample_freq: 1, colsample_bytree: 0.8, verbose: -1}
+  # sigmoid (Platt) over isotonic: isotonic is non-parametric and saturates — it
+  # returns exactly 0.0 and 1.0 at the tails, which then multiply through every
+  # downstream dollar figure as false certainty. Platt stays strictly inside (0,1).
+  calibration: sigmoid      # null | sigmoid | isotonic
+  selection_metric: roc_auc
+
+segmentation:
+  algorithm: kmeans
+  k_range: [3, 4, 5, 6, 7, 8]
+  features: [tenure, MonthlyCharges, TotalCharges, avg_charge_per_month, services_count]
+
+nlp:
+  text_column: review_text
+  sentiment_backend: auto        # auto | transformer | lexicon
+  transformer_model: distilbert-base-uncased-finetuned-sst-2-english
+  n_topics: 8
+  top_terms_per_topic: 10
+
+rag:
+  embedding_backend: auto        # auto | sentence_transformers | tfidf
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  vector_store: artifacts/models/vector_store
+  top_k: 6
+  llm:
+    provider: auto               # auto | anthropic | openai | none
+    anthropic_model: claude-sonnet-4-5
+    openai_model: gpt-4o-mini
+    max_tokens: 900
+    temperature: 0.2
+
+mlflow:
+  enabled: true
+  tracking_uri: file:./artifacts/mlruns
+  experiment: intelliops-churn
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  model_path: artifacts/models/churn_model.joblib
+
+dashboard:
+  api_url: http://localhost:8000
+  high_risk_threshold: 0.55

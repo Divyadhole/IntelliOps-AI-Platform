@@ -1,0 +1,74 @@
+name: intelliops
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: intelliops
+      POSTGRES_PASSWORD: intelliops
+      POSTGRES_DB: intelliops
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intelliops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.1
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    ports: ["5000:5000"]
+    volumes: ["mlflow:/mlflow"]
+
+  # One-shot job: ETL → train → segment → NLP → RAG index, then exits.
+  # The API and dashboard wait for it so they never start against an empty warehouse.
+  bootstrap:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      INTELLIOPS_DB_URL: postgresql+psycopg2://intelliops:intelliops@postgres:5432/intelliops
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    command: >
+      bash -c "python -m intelliops.data_pipeline.run_pipeline &&
+               python -m intelliops.churn_model.train &&
+               python -m intelliops.churn_model.segmentation &&
+               python -m intelliops.nlp_engine.run_nlp &&
+               python -m intelliops.rag_assistant.retriever"
+    volumes: ["artifacts:/app/artifacts"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      INTELLIOPS_DB_URL: postgresql+psycopg2://intelliops:intelliops@postgres:5432/intelliops
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports: ["8000:8000"]
+    volumes: ["artifacts:/app/artifacts"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      bootstrap: {condition: service_completed_successfully}
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    environment:
+      INTELLIOPS_DB_URL: postgresql+psycopg2://intelliops:intelliops@postgres:5432/intelliops
+    ports: ["8501:8501"]
+    volumes: ["artifacts:/app/artifacts"]
+    depends_on:
+      api: {condition: service_started}
+
+volumes:
+  pgdata:
+  mlflow:
+  artifacts:

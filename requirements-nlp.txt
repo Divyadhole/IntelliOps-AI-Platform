@@ -1,0 +1,10 @@
+# Optional heavyweight NLP stack.
+# Without these the platform uses TF-IDF + SVD embeddings and a lexicon sentiment
+# scorer — lower quality, identical interfaces, no code changes.
+sentence-transformers>=2.5
+transformers>=4.38
+torch>=2.2
+
+# LLM providers for the RAG assistant (set ANTHROPIC_API_KEY or OPENAI_API_KEY)
+anthropic>=0.25
+openai>=1.14
