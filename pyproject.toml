@@ -9,7 +9,7 @@ description = "Enterprise AI Intelligence Platform: predictive analytics + LLM d
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "Zhihan Yan"}]
+authors = [{name = "Divyadhole"}]
 keywords = ["machine-learning", "mlops", "churn-prediction", "nlp", "rag", "llm", "data-engineering"]
 
 [tool.setuptools.packages.find]
