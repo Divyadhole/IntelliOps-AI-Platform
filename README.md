@@ -2,12 +2,12 @@
 
 **Enterprise customer intelligence: an ETL pipeline, a calibrated churn model with SHAP explanations, an NLP + RAG analyst, and a serving layer — as one deployable system.**
 
-[![CI](https://github.com/YOUR_USERNAME/IntelliOps-AI-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/IntelliOps-AI-Platform/actions/workflows/ci.yml)
+[![CI](https://github.com/Divyadhole/IntelliOps-AI-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Divyadhole/IntelliOps-AI-Platform/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/IntelliOps-AI-Platform.git
+git clone https://github.com/Divyadhole/IntelliOps-AI-Platform.git
 cd IntelliOps-AI-Platform
 pip install -r requirements.txt
 make all          # ETL → train → segment → NLP → RAG index   (~30 seconds)
