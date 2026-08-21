@@ -83,11 +83,68 @@ def money(value: float) -> str:
     return f"${value:,.0f}"
 
 
+@st.cache_resource(show_spinner=False)
+def bootstrap() -> str:
+    """Build anything missing before the first render.
+
+    A deployed demo has no `make all` step — the host clones the repo and runs this
+    file into an empty container. Showing a stack trace to the first visitor is not
+    an acceptable cold start, so the app builds its own warehouse, model and index.
+    """
+    from intelliops.bootstrap import ensure_platform_ready
+
+    return ensure_platform_ready(CFG).summary()
+
+
+with st.spinner("First run here — building the warehouse, training the model and indexing "
+                "feedback. About a minute, then it is cached."):
+    BOOT = bootstrap()
+
 try:
     D = load_all()
-except Exception as exc:  # warehouse missing or empty
-    st.error(f"Could not read the warehouse: {exc}\n\nRun `make all` first.")
+except Exception as exc:  # pragma: no cover - only reachable if bootstrap itself failed
+    st.error(f"Could not read the warehouse: {exc}\n\nTry `make all` from the repo root.")
     st.stop()
+
+
+# ------------------------------------------------ inference: API, else in-process
+@st.cache_resource(show_spinner=False)
+def local_scorer():
+    from intelliops.churn_model.predict import ChurnScorer
+
+    return ChurnScorer(cfg=CFG)
+
+
+@st.cache_resource(show_spinner=False)
+def local_assistant():
+    from intelliops.rag_assistant.assistant import BusinessAnalystAssistant
+
+    return BusinessAnalystAssistant(cfg=CFG)
+
+
+def score_customer(payload: dict) -> tuple[dict, str]:
+    """Prefer the API; fall back to the same objects in-process.
+
+    The API is the production path and the dashboard should exercise it. But a
+    single-container deployment has no API to call, and a demo whose two most
+    interesting buttons return connection errors is worse than one that quietly
+    loads the model itself — it is the identical ChurnScorer either way.
+    """
+    try:
+        r = requests.post(f"{API_URL}/predict_churn", json=payload, timeout=10)
+        r.raise_for_status()
+        return r.json(), "API"
+    except Exception:
+        return local_scorer().explain_one(payload), "in-process"
+
+
+def ask_analyst(question: str) -> tuple[dict, str]:
+    try:
+        r = requests.post(f"{API_URL}/ask", json={"question": question}, timeout=90)
+        r.raise_for_status()
+        return r.json(), "API"
+    except Exception:
+        return local_assistant().ask(question).to_dict(), "in-process"
 
 MODEL = D["model"]
 METRICS = MODEL.get("final_metrics", {})
@@ -119,7 +176,7 @@ with st.sidebar:
         health = requests.get(f"{API_URL}/health", timeout=3).json()
     except Exception:
         pass
-    st.caption(f"API: {'🟢 ' + health['status'] if health else '⚪ offline — warehouse mode'}")
+    st.caption(f"API: {'🟢 ' + health['status'] if health else '⚪ offline — scoring runs in-process'}")
     st.caption(f"Model: {MODEL.get('selected_model', 'n/a').replace('_', ' ')}")
     st.caption(f"ROC-AUC {METRICS.get('roc_auc', 0):.3f} · Brier {METRICS.get('brier', 0):.3f}")
 
@@ -269,8 +326,9 @@ with st.container(border=True):
 # ------------------------------------------------------------------ live scoring
 html('<div class="sec">Score a customer</div>')
 with st.container(border=True):
-    st.caption(f"Calls POST {API_URL}/predict_churn — the same model, the same threshold, "
-               "with SHAP drivers rendered as retention actions. Start it with `make api`.")
+    st.caption(f"Calls POST {API_URL}/predict_churn when the API is up, and loads the same "
+               "model in-process when it is not — identical result either way, with SHAP "
+               "drivers rendered as retention actions.")
     f1, f2, f3, f4 = st.columns(4)
     payload = {
         "customerID": "AD-HOC",
@@ -287,19 +345,16 @@ with st.container(border=True):
     payload["TotalCharges"] = payload["tenure"] * payload["MonthlyCharges"]
 
     if st.button("Predict", type="primary"):
-        try:
-            r = requests.post(f"{API_URL}/predict_churn", json=payload, timeout=20)
-            r.raise_for_status()
-            res = r.json()
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Churn probability", f"{res['churn_probability']:.1%}")
-            m2.metric("Risk band", res["risk_band"])
-            m3.metric("Expected value of offer", money(res["expected_value_of_offer"]))
-            st.info(f"**Recommended action:** {res['recommended_action']}")
-            st.dataframe(pd.DataFrame(res["top_drivers"]), use_container_width=True,
-                         hide_index=True)
-        except Exception as exc:
-            st.error(f"API call failed: {exc}. Is the API running on {API_URL}?")
+        with st.spinner("Scoring…"):
+            res, via = score_customer(payload)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Churn probability", f"{res['churn_probability']:.1%}")
+        m2.metric("Risk band", res["risk_band"])
+        m3.metric("Expected value of offer", money(res["expected_value_of_offer"]))
+        st.info(f"**Recommended action:** {res['recommended_action']}")
+        st.dataframe(pd.DataFrame(res["top_drivers"]), use_container_width=True,
+                     hide_index=True)
+        st.caption(f"Scored via {via}.")
 
 # ------------------------------------------------------------------ voice of customer
 html('<div class="sec">Voice of customer</div>')
@@ -332,17 +387,13 @@ with st.container(border=True):
     question = st.text_input("Question", "Why are customers leaving?", label_visibility="collapsed")
     if st.button("Ask"):
         with st.spinner("Retrieving evidence…"):
-            try:
-                r = requests.post(f"{API_URL}/ask", json={"question": question}, timeout=120)
-                r.raise_for_status()
-                ans = r.json()
-                st.markdown(ans["answer"])
-                st.caption(f"Generated by: {ans['generated_by']} {ans.get('model', '')}")
-                with st.expander(f"Evidence ({len(ans['citations'])} items)"):
-                    for c in ans["citations"]:
-                        st.markdown(f"**[{c['id']}]** `{c['source']}` — {c['text']}")
-            except Exception as exc:
-                st.error(f"API call failed: {exc}. Is the API running on {API_URL}?")
+            ans, via = ask_analyst(question)
+        st.markdown(ans["answer"])
+        st.caption(f"Answered via {via} · generated by {ans['generated_by']} "
+                   f"{ans.get('model', '')}")
+        with st.expander(f"Evidence ({len(ans['citations'])} items)"):
+            for c in ans["citations"]:
+                st.markdown(f"**[{c['id']}]** `{c['source']}` — {c['text']}")
 
 # --------------------------------------------------------------------- model ops
 html('<div class="sec">Model operations</div>')

@@ -22,8 +22,12 @@ ingestion prefers it automatically.
 
 ![IntelliOps executive dashboard](docs/dashboard.png)
 
-*The static build. `make report` regenerates it from the warehouse; `make dashboard`
-serves the interactive Streamlit version of the same page.*
+**Live:** [static dashboard](https://divyadhole.github.io/IntelliOps-AI-Platform/) ·
+rebuilt from the pipeline on every push to `main`, so the published page can never
+drift from the code.
+
+*`make report` regenerates it locally; `make dashboard` serves the interactive
+Streamlit version of the same page.*
 
 ---
 
@@ -254,6 +258,34 @@ make mlflow               # experiment UI at :5000
 
 ---
 
+## Running it live
+
+Two hosted surfaces, both free, both driven by this repo.
+
+**GitHub Pages — the static dashboard.** `.github/workflows/pages.yml` runs the whole
+pipeline on every push to `main`, renders `dashboard.html` and publishes it. Enable it
+once: **Settings → Pages → Source: GitHub Actions**. The page then lands at
+`https://<user>.github.io/IntelliOps-AI-Platform/` and updates itself on every commit.
+
+**Streamlit Community Cloud — the interactive app.** Sign in at
+[share.streamlit.io](https://share.streamlit.io) with GitHub, point it at this repo,
+and set the main file to `dashboard/app.py`. Nothing else to configure.
+
+The app **bootstraps itself** on a cold start: `intelliops/bootstrap.py` checks what
+exists and builds whatever is missing — warehouse, model, segments, NLP tables, vector
+index — so the first visitor to a fresh container gets a working page in about a
+minute rather than a stack trace. Subsequent loads hit the cache.
+
+It also **degrades without the API**. A Streamlit Cloud container runs one process, so
+there is no FastAPI service to call; the dashboard loads the identical `ChurnScorer`
+and `BusinessAnalystAssistant` in-process instead and labels which path answered. Live
+scoring and the RAG analyst work either way — the API is the production path, not a
+prerequisite for the demo.
+
+For the full stack — API, dashboard, Postgres and MLflow together — use `docker compose up -d`.
+
+---
+
 ## Repository layout
 
 ```
@@ -328,6 +360,32 @@ Stating these is part of the engineering, not a disclaimer.
 - Designed an **expected-value targeting policy** that converts calibrated probabilities and campaign economics into a ranked call list, yielding a modelled **1.64× campaign ROI** versus untargeted outreach.
 - Built an NLP and RAG layer — sentiment, NMF topic discovery, hybrid dense+lexical retrieval over structured facts and verbatims — answering executive questions with cited, grounded evidence and a deterministic fallback when no LLM is configured.
 - Shipped the platform as a FastAPI service and Streamlit dashboard with MLflow tracking, multi-stage Docker images, an Airflow DAG, and a GitHub Actions pipeline running 92 tests plus a model-quality gate.
+
+---
+
+## Troubleshooting
+
+**`AttributeError: _ARRAY_API not found` / "compiled using NumPy 1.x cannot be run in
+NumPy 2.x".** The environment has NumPy 2 with pandas/pyarrow binaries built against
+NumPy 1. It is an environment problem, not a repo problem, and it breaks every pandas
+project on that machine. Build a clean environment rather than repairing the old one:
+
+```bash
+conda create -n intelliops python=3.11 -y && conda activate intelliops
+pip install -r requirements.txt
+```
+
+**`No module named uvicorn` even though pip said it installed.** `python3` and
+`streamlit` are resolving to different interpreters — commonly Homebrew Python for one
+and Anaconda for the other. `which -a python3 streamlit` will show it. Activate a
+single environment and stay in it; the Makefile follows whatever `python3` is on the
+path, and `make PY=python ...` overrides it.
+
+**Python 3.13 or 3.14.** Several dependencies have no prebuilt wheels there yet and
+will try to compile from source. Use 3.11 or 3.12.
+
+**The dashboard says the warehouse is empty.** Run `make all`, or just open the
+Streamlit app — it bootstraps itself.
 
 ---
 

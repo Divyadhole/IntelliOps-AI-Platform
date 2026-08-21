@@ -1,0 +1,68 @@
+name: Deploy dashboard to GitHub Pages
+
+# The static dashboard is regenerated from the pipeline on every push to main and
+# published to <user>.github.io/IntelliOps-AI-Platform. That matters more than it
+# sounds: the live page cannot drift from the code, because the only way to change
+# it is to change the pipeline that builds it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build the platform and render the dashboard
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m intelliops.data_pipeline.run_pipeline
+          python -m intelliops.churn_model.train
+          python -m intelliops.churn_model.segmentation
+          python -m intelliops.nlp_engine.run_nlp
+          python -m intelliops.reporting.build_dashboard
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp artifacts/reports/dashboard.html _site/index.html
+          cp artifacts/reports/model_report.json _site/model_report.json
+          cp -r docs _site/docs || true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
